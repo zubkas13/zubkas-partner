@@ -6,6 +6,15 @@ const iconMap: Record<string, typeof Package> = {
   Briefcase, BarChart3, HardHat, CreditCard, Wallet, Users, Sparkles, Package,
 };
 
+function computeGstAmount(price: number, rate: number): number {
+  return Math.round((price * (rate / 100)) * 100) / 100;
+}
+
+function formatINR(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return `₹${n.toLocaleString('en-IN')}`;
+}
+
 export function PartnerProducts() {
   const { products, siteContent } = useApp();
 
@@ -21,15 +30,12 @@ export function PartnerProducts() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {products.map(p => {
           const Icon = iconMap[p.icon] ?? Package;
-          const displayPrice = p.billingFrequency === 'Yearly'
-            ? p.yearlyPrice
-            : p.billingFrequency === 'Monthly'
-              ? p.monthlyPrice
-              : (p.monthlyPrice ?? p.yearlyPrice);
-          const gstAmount = displayPrice != null && p.gstApplicable
-            ? Math.round((displayPrice * (p.gstRate ?? 18) / 100) * 100) / 100
-            : 0;
-          const total = displayPrice != null ? displayPrice + gstAmount : 0;
+          const hasMonthly = p.monthlyPrice != null;
+          const hasYearly = p.yearlyPrice != null;
+          const mGst = p.gstApplicable && hasMonthly ? computeGstAmount(p.monthlyPrice!, p.gstRate ?? 18) : null;
+          const yGst = p.gstApplicable && hasYearly ? computeGstAmount(p.yearlyPrice!, p.gstRate ?? 18) : null;
+          const mTotal = hasMonthly ? p.monthlyPrice! + (mGst ?? 0) : null;
+          const yTotal = hasYearly ? p.yearlyPrice! + (yGst ?? 0) : null;
           return (
             <div key={p.id} className="card p-5 flex flex-col">
               <div className="flex items-start justify-between">
@@ -48,31 +54,69 @@ export function PartnerProducts() {
                   </div>
                 ))}
               </div>
-              <div className="mt-4 pt-3 border-t border-gray-50 space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-400">Billing</span>
-                  <span className="font-medium text-gray-900">{p.billingFrequency ?? 'Monthly'}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-400">Base Price</span>
-                  {displayPrice != null ? (
-                    <span className="font-medium text-gray-900">₹{displayPrice.toLocaleString('en-IN')}</span>
-                  ) : (
-                    <span className="font-medium text-emerald-600">Free</span>
-                  )}
-                </div>
-                {displayPrice != null && p.gstApplicable && (
-                  <>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-gray-400">+ GST ({p.gstRate ?? 18}%)</span>
-                      <span className="font-medium text-gray-700">₹{gstAmount.toLocaleString('en-IN')}</span>
+
+              {/* Dual pricing block */}
+              <div className="mt-4 pt-3 border-t border-gray-50">
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Monthly */}
+                  <div className={`rounded-lg border p-2.5 ${p.billingFrequency === 'Monthly' ? 'border-zubkas-200 bg-zubkas-50/40' : 'border-gray-100 bg-gray-50/50'}`}>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-zubkas-700">Monthly</span>
+                      {p.billingFrequency === 'Monthly' && <span className="text-[9px] rounded bg-zubkas-700 px-1 py-0.5 text-white font-semibold">Default</span>}
                     </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-gray-400">Total (incl. GST)</span>
-                      <span className="font-semibold text-zubkas-700">₹{total.toLocaleString('en-IN')}</span>
+                    {hasMonthly ? (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-gray-400">Base</span>
+                          <span className="font-medium text-gray-900">{formatINR(p.monthlyPrice)}</span>
+                        </div>
+                        {mGst != null && (
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-gray-400">GST ({p.gstRate ?? 18}%)</span>
+                            <span className="font-medium text-gray-700">{formatINR(mGst)}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-[11px] pt-0.5 border-t border-gray-100">
+                          <span className="text-gray-500 font-medium">Total</span>
+                          <span className="font-semibold text-zubkas-700">{formatINR(mTotal)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-gray-400">Not offered</span>
+                    )}
+                  </div>
+
+                  {/* Yearly */}
+                  <div className={`rounded-lg border p-2.5 ${p.billingFrequency === 'Yearly' ? 'border-zubkas-200 bg-zubkas-50/40' : 'border-gray-100 bg-gray-50/50'}`}>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-zubkas-700">Yearly</span>
+                      {p.billingFrequency === 'Yearly' && <span className="text-[9px] rounded bg-zubkas-700 px-1 py-0.5 text-white font-semibold">Default</span>}
                     </div>
-                  </>
-                )}
+                    {hasYearly ? (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-gray-400">Base</span>
+                          <span className="font-medium text-gray-900">{formatINR(p.yearlyPrice)}</span>
+                        </div>
+                        {yGst != null && (
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-gray-400">GST ({p.gstRate ?? 18}%)</span>
+                            <span className="font-medium text-gray-700">{formatINR(yGst)}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-[11px] pt-0.5 border-t border-gray-100">
+                          <span className="text-gray-500 font-medium">Total</span>
+                          <span className="font-semibold text-zubkas-700">{formatINR(yTotal)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-gray-400">Not offered</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 pt-2 border-t border-gray-50">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-gray-400">Commission</span>
                   {p.commissionEligible ? (

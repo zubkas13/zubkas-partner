@@ -162,6 +162,8 @@ export interface Product {
   billingFrequency?: 'Monthly' | 'Yearly';
   gstApplicable?: boolean;
   gstRate?: number;
+  monthlyGst?: number | null;
+  yearlyGst?: number | null;
 }
 
 export interface Notification {

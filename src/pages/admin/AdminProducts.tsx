@@ -21,7 +21,7 @@ const iconMap: Record<string, typeof Package> = Object.fromEntries(
 );
 
 const statusOptions: Product['status'][] = ['Active', 'Beta', 'Coming Soon'];
-const billingFrequencyOptions: Product['billingFrequency'][] = ['Monthly', 'Yearly'];
+const billingFrequencyOptions: ('Monthly' | 'Yearly')[] = ['Monthly', 'Yearly'];
 
 interface FormState {
   name: string;
@@ -74,6 +74,11 @@ function computeGstAmount(price: number, rate: number): number {
   return Math.round((price * (rate / 100)) * 100) / 100;
 }
 
+function formatINR(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return `₹${n.toLocaleString('en-IN')}`;
+}
+
 export function AdminProducts() {
   const { products, addProduct, updateProduct, deleteProduct } = useApp();
   const [showAdd, setShowAdd] = useState(false);
@@ -102,19 +107,25 @@ export function AdminProducts() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const filteredFeatures = form.features.filter(f => f.trim() !== '');
+    const monthlyPriceNum = form.monthlyPrice ? Number(form.monthlyPrice) : null;
+    const yearlyPriceNum = form.yearlyPrice ? Number(form.yearlyPrice) : null;
+    const gstRateNum = form.gstApplicable ? Number(form.gstRate) : 0;
+
     const payload: Omit<Product, 'id'> = {
       name: form.name,
       description: form.description,
       icon: form.icon,
       billingFrequency: form.billingFrequency,
-      monthlyPrice: form.billingFrequency === 'Monthly' && form.monthlyPrice ? Number(form.monthlyPrice) : null,
-      yearlyPrice: form.billingFrequency === 'Yearly' && form.yearlyPrice ? Number(form.yearlyPrice) : null,
+      monthlyPrice: monthlyPriceNum,
+      yearlyPrice: yearlyPriceNum,
       commissionEligible: form.commissionEligible,
       showOnLanding: form.showOnLanding,
       status: form.status,
       features: filteredFeatures,
       gstApplicable: form.gstApplicable,
-      gstRate: form.gstApplicable ? Number(form.gstRate) : 0,
+      gstRate: gstRateNum,
+      monthlyGst: form.gstApplicable && monthlyPriceNum != null ? computeGstAmount(monthlyPriceNum, gstRateNum) : null,
+      yearlyGst: form.gstApplicable && yearlyPriceNum != null ? computeGstAmount(yearlyPriceNum, gstRateNum) : null,
     };
     if (editingId) {
       updateProduct(editingId, payload);
@@ -128,13 +139,13 @@ export function AdminProducts() {
   const removeFeature = (index: number) => setForm(f => ({ ...f, features: f.features.filter((_, i) => i !== index) }));
   const updateFeature = (index: number, value: string) => setForm(f => ({ ...f, features: f.features.map((feat, i) => i === index ? value : feat) }));
 
-  const activePrice = form.billingFrequency === 'Monthly'
-    ? (form.monthlyPrice ? Number(form.monthlyPrice) : 0)
-    : (form.yearlyPrice ? Number(form.yearlyPrice) : 0);
-  const gstAmount = form.gstApplicable
-    ? computeGstAmount(activePrice, form.gstRate ? Number(form.gstRate) : 0)
-    : 0;
-  const totalWithGst = activePrice + gstAmount;
+  const monthlyNum = form.monthlyPrice ? Number(form.monthlyPrice) : 0;
+  const yearlyNum = form.yearlyPrice ? Number(form.yearlyPrice) : 0;
+  const rateNum = form.gstRate ? Number(form.gstRate) : 0;
+  const monthlyGstAmount = form.gstApplicable ? computeGstAmount(monthlyNum, rateNum) : 0;
+  const yearlyGstAmount = form.gstApplicable ? computeGstAmount(yearlyNum, rateNum) : 0;
+  const monthlyTotal = monthlyNum + monthlyGstAmount;
+  const yearlyTotal = yearlyNum + yearlyGstAmount;
 
   return (
     <div className="space-y-6">
@@ -150,11 +161,12 @@ export function AdminProducts() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {products.map(p => {
             const Icon = iconMap[p.icon] ?? Package;
-            const displayPrice = p.billingFrequency === 'Yearly'
-              ? p.yearlyPrice
-              : p.billingFrequency === 'Monthly'
-                ? p.monthlyPrice
-                : (p.monthlyPrice ?? p.yearlyPrice);
+            const hasMonthly = p.monthlyPrice != null;
+            const hasYearly = p.yearlyPrice != null;
+            const mGst = p.gstApplicable && hasMonthly ? computeGstAmount(p.monthlyPrice!, p.gstRate ?? 18) : null;
+            const yGst = p.gstApplicable && hasYearly ? computeGstAmount(p.yearlyPrice!, p.gstRate ?? 18) : null;
+            const mTotal = hasMonthly ? p.monthlyPrice! + (mGst ?? 0) : null;
+            const yTotal = hasYearly ? p.yearlyPrice! + (yGst ?? 0) : null;
             return (
               <div key={p.id} className="card p-5 flex flex-col">
                 <div className="flex items-start justify-between">
@@ -181,31 +193,69 @@ export function AdminProducts() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-4 pt-3 border-t border-gray-50 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-400">Billing</span>
-                    <span className="font-medium text-gray-900">{p.billingFrequency ?? 'Monthly'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-400">Base Price</span>
-                    {displayPrice != null ? (
-                      <span className="font-medium text-gray-900">₹{displayPrice.toLocaleString('en-IN')}</span>
-                    ) : (
-                      <span className="font-medium text-emerald-600">Free</span>
-                    )}
-                  </div>
-                  {displayPrice != null && p.gstApplicable && (
-                    <>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-400">+ GST ({p.gstRate ?? 18}%)</span>
-                        <span className="font-medium text-gray-700">₹{computeGstAmount(displayPrice, p.gstRate ?? 18).toLocaleString('en-IN')}</span>
+
+                {/* Dual pricing block */}
+                <div className="mt-4 pt-3 border-t border-gray-50">
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Monthly */}
+                    <div className={`rounded-lg border p-2.5 ${p.billingFrequency === 'Monthly' ? 'border-zubkas-200 bg-zubkas-50/40' : 'border-gray-100 bg-gray-50/50'}`}>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-zubkas-700">Monthly</span>
+                        {p.billingFrequency === 'Monthly' && <span className="text-[9px] rounded bg-zubkas-700 px-1 py-0.5 text-white font-semibold">Default</span>}
                       </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-400">Total (incl. GST)</span>
-                        <span className="font-semibold text-zubkas-700">₹{(displayPrice + computeGstAmount(displayPrice, p.gstRate ?? 18)).toLocaleString('en-IN')}</span>
+                      {hasMonthly ? (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-gray-400">Base</span>
+                            <span className="font-medium text-gray-900">{formatINR(p.monthlyPrice)}</span>
+                          </div>
+                          {mGst != null && (
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-gray-400">GST ({p.gstRate ?? 18}%)</span>
+                              <span className="font-medium text-gray-700">{formatINR(mGst)}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between text-[11px] pt-0.5 border-t border-gray-100">
+                            <span className="text-gray-500 font-medium">Total</span>
+                            <span className="font-semibold text-zubkas-700">{formatINR(mTotal)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-gray-400">Not offered</span>
+                      )}
+                    </div>
+
+                    {/* Yearly */}
+                    <div className={`rounded-lg border p-2.5 ${p.billingFrequency === 'Yearly' ? 'border-zubkas-200 bg-zubkas-50/40' : 'border-gray-100 bg-gray-50/50'}`}>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-zubkas-700">Yearly</span>
+                        {p.billingFrequency === 'Yearly' && <span className="text-[9px] rounded bg-zubkas-700 px-1 py-0.5 text-white font-semibold">Default</span>}
                       </div>
-                    </>
-                  )}
+                      {hasYearly ? (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-gray-400">Base</span>
+                            <span className="font-medium text-gray-900">{formatINR(p.yearlyPrice)}</span>
+                          </div>
+                          {yGst != null && (
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-gray-400">GST ({p.gstRate ?? 18}%)</span>
+                              <span className="font-medium text-gray-700">{formatINR(yGst)}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between text-[11px] pt-0.5 border-t border-gray-100">
+                            <span className="text-gray-500 font-medium">Total</span>
+                            <span className="font-semibold text-zubkas-700">{formatINR(yTotal)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-gray-400">Not offered</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-2 border-t border-gray-50 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-400">Commission</span>
                     {p.commissionEligible ? (
@@ -256,10 +306,41 @@ export function AdminProducts() {
             />
           </div>
 
-          {/* Billing Frequency */}
+          {/* Dual Pricing Inputs */}
           <div>
-            <label className="text-sm font-medium text-gray-700">Billing Frequency</label>
-            <div className="mt-1 grid grid-cols-2 gap-2">
+            <label className="text-sm font-medium text-gray-700">Pricing</label>
+            <p className="text-xs text-gray-400 mt-0.5">Set both monthly and yearly prices. Leave blank if a billing cycle is not offered.</p>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600">Monthly Price (₹)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.monthlyPrice}
+                  onChange={(e) => setForm({ ...form, monthlyPrice: e.target.value })}
+                  className="input-field mt-1"
+                  placeholder="499"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Yearly Price (₹)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.yearlyPrice}
+                  onChange={(e) => setForm({ ...form, yearlyPrice: e.target.value })}
+                  className="input-field mt-1"
+                  placeholder="4,990"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Default Billing Frequency */}
+          <div>
+            <label className="text-sm font-medium text-gray-700">Default Billing Frequency</label>
+            <p className="text-xs text-gray-400 mt-0.5">Which plan is shown as the primary option on the product card.</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
               {billingFrequencyOptions.map(opt => (
                 <button
                   key={opt}
@@ -274,34 +355,7 @@ export function AdminProducts() {
             </div>
           </div>
 
-          {/* Conditional Price Input */}
-          {form.billingFrequency === 'Monthly' ? (
-            <div>
-              <label className="text-sm font-medium text-gray-700">Monthly Price (₹)</label>
-              <input
-                type="number"
-                min="0"
-                value={form.monthlyPrice}
-                onChange={(e) => setForm({ ...form, monthlyPrice: e.target.value })}
-                className="input-field mt-1"
-                placeholder="499"
-              />
-            </div>
-          ) : (
-            <div>
-              <label className="text-sm font-medium text-gray-700">Yearly Price (₹)</label>
-              <input
-                type="number"
-                min="0"
-                value={form.yearlyPrice}
-                onChange={(e) => setForm({ ...form, yearlyPrice: e.target.value })}
-                className="input-field mt-1"
-                placeholder="4,990"
-              />
-            </div>
-          )}
-
-          {/* GST Configuration — available for both monthly and yearly */}
+          {/* GST Configuration */}
           <div className="rounded-lg bg-gray-50 p-3 space-y-3">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -326,22 +380,43 @@ export function AdminProducts() {
                     placeholder="18"
                   />
                 </div>
-                {activePrice > 0 && (
-                  <div className="rounded-md bg-white border border-gray-100 p-3 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Base Price</span>
-                      <span className="font-medium text-gray-900">₹{activePrice.toLocaleString('en-IN')}</span>
+                {/* Dual GST preview */}
+                <div className="grid grid-cols-2 gap-2">
+                  {form.monthlyPrice && (
+                    <div className="rounded-md bg-white border border-gray-100 p-2.5 text-[11px] space-y-0.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1">Monthly</div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Base</span>
+                        <span className="font-medium text-gray-900">{formatINR(monthlyNum)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">+ GST ({rateNum}%)</span>
+                        <span className="font-medium text-gray-700">{formatINR(monthlyGstAmount)}</span>
+                      </div>
+                      <div className="flex justify-between pt-0.5 border-t border-gray-100">
+                        <span className="text-gray-600 font-medium">Total</span>
+                        <span className="font-semibold text-zubkas-700">{formatINR(monthlyTotal)}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">+ GST ({form.gstRate || 0}%)</span>
-                      <span className="font-medium text-gray-700">₹{gstAmount.toLocaleString('en-IN')}</span>
+                  )}
+                  {form.yearlyPrice && (
+                    <div className="rounded-md bg-white border border-gray-100 p-2.5 text-[11px] space-y-0.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1">Yearly</div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Base</span>
+                        <span className="font-medium text-gray-900">{formatINR(yearlyNum)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">+ GST ({rateNum}%)</span>
+                        <span className="font-medium text-gray-700">{formatINR(yearlyGstAmount)}</span>
+                      </div>
+                      <div className="flex justify-between pt-0.5 border-t border-gray-100">
+                        <span className="text-gray-600 font-medium">Total</span>
+                        <span className="font-semibold text-zubkas-700">{formatINR(yearlyTotal)}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between pt-1 border-t border-gray-100">
-                      <span className="text-gray-600 font-medium">Total (incl. GST)</span>
-                      <span className="font-semibold text-zubkas-700">₹{totalWithGst.toLocaleString('en-IN')}</span>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>
