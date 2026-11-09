@@ -85,6 +85,8 @@ export function AdminProducts() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const openAdd = () => {
     setForm(emptyForm);
@@ -102,10 +104,13 @@ export function AdminProducts() {
     setShowAdd(false);
     setEditingId(null);
     setForm(emptyForm);
+    setSubmitError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
+    setIsSaving(true);
     const filteredFeatures = form.features.filter(f => f.trim() !== '');
     const monthlyPriceNum = form.monthlyPrice ? Number(form.monthlyPrice) : null;
     const yearlyPriceNum = form.yearlyPrice ? Number(form.yearlyPrice) : null;
@@ -127,12 +132,20 @@ export function AdminProducts() {
       monthlyGst: form.gstApplicable && monthlyPriceNum != null ? computeGstAmount(monthlyPriceNum, gstRateNum) : null,
       yearlyGst: form.gstApplicable && yearlyPriceNum != null ? computeGstAmount(yearlyPriceNum, gstRateNum) : null,
     };
-    if (editingId) {
-      updateProduct(editingId, payload);
-    } else {
-      addProduct({ ...payload, launchDate: new Date().toISOString().split('T')[0] });
+    try {
+      if (editingId) {
+        await updateProduct(editingId, payload);
+      } else {
+        addProduct({ ...payload, launchDate: new Date().toISOString().split('T')[0] });
+      }
+      closeForm();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save product. Please try again.';
+      console.error('Product save failed:', message);
+      setSubmitError(message);
+    } finally {
+      setIsSaving(false);
     }
-    closeForm();
   };
 
   const addFeature = () => setForm(f => ({ ...f, features: [...f.features, ''] }));
@@ -514,12 +527,24 @@ export function AdminProducts() {
             </div>
           </div>
 
+          {/* Submit error */}
+          {submitError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-red-900">Save failed</p>
+                <p className="text-xs text-red-700 mt-0.5">{submitError}</p>
+              </div>
+            </div>
+          )}
+
           {/* Submit */}
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={closeForm} className="btn-ghost flex-1">Cancel</button>
-            <button type="submit" className="btn-primary flex-1">
-              {editingId ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-              {editingId ? 'Update Product' : 'Add Product'}
+            <button type="button" onClick={closeForm} disabled={isSaving} className="btn-ghost flex-1">Cancel</button>
+            <button type="submit" disabled={isSaving} className="btn-primary flex-1 disabled:opacity-60 disabled:cursor-not-allowed">
+              {isSaving
+                ? 'Saving...'
+                : (<>{editingId ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{editingId ? 'Update Product' : 'Add Product'}</>)}
             </button>
           </div>
         </form>

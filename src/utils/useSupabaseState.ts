@@ -114,8 +114,14 @@ export function useSupabaseCollection<T extends { id: string }>(
     }
     // Optimistic update: reflect changes in local state immediately
     setState(prev => prev.map(r => (r.id === id ? { ...r, ...updates } : r)));
-    const { error } = await supabase.from(table).update(snake).eq('id', id);
+    // Use .select() to get the authoritative row back from the DB after update,
+    // then replace local state with the confirmed DB response so values persist.
+    const { data, error } = await supabase.from(table).update(snake).eq('id', id).select();
     if (error) throw new Error(error.message);
+    if (data && data.length > 0) {
+      const confirmed = toCamelRow<Row>(data[0] as Row) as unknown as T;
+      setState(prev => prev.map(r => (r.id === id ? { ...r, ...confirmed } : r)));
+    }
   }, [table]);
 
   const deleteRow = useCallback(async (id: string) => {

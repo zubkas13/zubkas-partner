@@ -71,7 +71,7 @@ interface AppContextValue {
   updatePopup: (id: string, updates: Partial<Omit<Popup, 'id'>>) => void;
   deletePopup: (id: string) => void;
   addProduct: (p: Omit<Product, 'id'>) => void;
-  updateProduct: (id: string, updates: Partial<Omit<Product, 'id'>>) => void;
+  updateProduct: (id: string, updates: Partial<Omit<Product, 'id'>>) => Promise<void>;
   deleteProduct: (id: string) => void;
   addAnnouncement: (a: Omit<Announcement, 'id' | 'date' | 'author' | 'authorRole' | 'isPinned'>) => Promise<{ success: boolean; error?: string }>;
   deleteAnnouncement: (id: string) => void;
@@ -629,8 +629,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     productsHook.insertRow({ ...p, id: '' });
   }, [productsHook]);
 
-  const updateProduct: AppContextValue['updateProduct'] = useCallback((id, updates) => {
-    productsHook.updateRow(id, updates);
+  const updateProduct: AppContextValue['updateProduct'] = useCallback(async (id, updates) => {
+    await productsHook.updateRow(id, updates);
   }, [productsHook]);
 
   const deleteProduct: AppContextValue['deleteProduct'] = useCallback((id) => {
