@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Settings as SettingsIcon, Save, Lock, Trash2, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, Loader2 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { SectionHeader } from '@/components/Shared';
@@ -12,9 +12,50 @@ export function AdminSettings() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const fetchedRef = useRef(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearConfirmText, setClearConfirmText] = useState('');
   const [cleared, setCleared] = useState(false);
+
+  // Fetch settings directly from Supabase on mount so the form always
+  // reflects what's in the database, not stale context defaults.
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    (async () => {
+      setLoading(true);
+      setLoadError('');
+      try {
+        const { data, error } = await supabase
+          .from('app_settings')
+          .select('*')
+          .eq('id', 'singleton')
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data) {
+          const r = data as Record<string, unknown>;
+          const dbLeadLock = (r.lead_lock_days as number) ?? 3;
+          const dbCapMonths = (r.commission_cap_months as number) ?? 12;
+          setLeadLock(String(dbLeadLock));
+          setCapMonths(String(dbCapMonths));
+          updateSettings({
+            leadLockDays: dbLeadLock,
+            commissionCapMonths: dbCapMonths,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        setLoadError(`Could not load settings from database: ${msg}`);
+        console.error('Settings load failed:', msg);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [updateSettings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +134,13 @@ export function AdminSettings() {
       <SectionHeader title="Settings" subtitle="Configure global partner program rules" />
 
       <form onSubmit={handleSave} className="card p-6 max-w-2xl space-y-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-zubkas-700" />
+            <span className="ml-2 text-sm text-gray-500">Loading settings...</span>
+          </div>
+        ) : (
+          <>
         <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zubkas-50">
             <SettingsIcon className="h-5 w-5 text-zubkas-700" />
@@ -103,18 +151,24 @@ export function AdminSettings() {
           </div>
         </div>
 
+        {loadError && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+            {loadError} Showing last known values — you can still save changes.
+          </div>
+        )}
+
         <div>
           <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
             <Lock className="h-4 w-4 text-gray-400" />
             Lead Lock Period (Days)
           </label>
-          <input type="number" min="1" max="30" value={leadLock} onChange={(e) => setLeadLock(e.target.value)} className="input-field mt-1" />
+          <input type="number" min="1" max="30" value={leadLock} onChange={(e) => setLeadLock(e.target.value)} className="input-field mt-1" disabled={saving} />
           <p className="text-xs text-gray-400 mt-1">When a partner submits a lead, the company is locked for this many days. Other partners cannot add the same company during this period.</p>
         </div>
 
         <div>
           <label className="text-sm font-medium text-gray-700">Commission Cap (Months)</label>
-          <input type="number" min="1" max="24" value={capMonths} onChange={(e) => setCapMonths(e.target.value)} className="input-field mt-1" />
+          <input type="number" min="1" max="24" value={capMonths} onChange={(e) => setCapMonths(e.target.value)} className="input-field mt-1" disabled={saving} />
           <p className="text-xs text-gray-400 mt-1">Maximum number of months a partner earns commission on a monthly subscription. Default: 12 months (1 year).</p>
         </div>
 
@@ -141,6 +195,8 @@ export function AdminSettings() {
             <p className="text-sm text-red-600 font-medium animate-fade-in">{saveError}</p>
           )}
         </div>
+          </>
+        )}
       </form>
 
       {/* Danger Zone */}
