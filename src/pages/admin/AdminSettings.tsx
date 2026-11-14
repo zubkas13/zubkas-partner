@@ -1,22 +1,83 @@
 import { useState } from 'react';
-import { Settings as SettingsIcon, Save, Lock, Trash2, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2 } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Lock, Trash2, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2, Loader2 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { SectionHeader } from '@/components/Shared';
 import { Modal } from '@/components/Modal';
+import { supabase } from '@/lib/supabase';
 
 export function AdminSettings() {
   const { settings, updateSettings, clearDemoData } = useApp();
   const [leadLock, setLeadLock] = useState(String(settings.leadLockDays));
   const [capMonths, setCapMonths] = useState(String(settings.commissionCapMonths));
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearConfirmText, setClearConfirmText] = useState('');
   const [cleared, setCleared] = useState(false);
-  const handleSave = (e: React.FormEvent) => {
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings({ leadLockDays: Number(leadLock), commissionCapMonths: Number(capMonths) });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
+
+    const leadLockDays = Number(leadLock);
+    const commissionCapMonths = Number(capMonths);
+
+    if (!Number.isFinite(leadLockDays) || leadLockDays < 1 || leadLockDays > 30) {
+      setSaveError('Lead Lock Period must be a number between 1 and 30.');
+      setSaving(false);
+      return;
+    }
+    if (!Number.isFinite(commissionCapMonths) || commissionCapMonths < 1 || commissionCapMonths > 24) {
+      setSaveError('Commission Cap must be a number between 1 and 24.');
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .update({
+          lead_lock_days: leadLockDays,
+          commission_cap_months: commissionCapMonths,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', 'singleton');
+
+      if (error) throw error;
+
+      // Re-fetch the saved row so local state reflects exactly what the DB holds
+      const { data: refreshed, error: refetchError } = await supabase
+        .from('app_settings')
+        .select('*')
+        .eq('id', 'singleton')
+        .maybeSingle();
+
+      if (refetchError) throw refetchError;
+
+      if (refreshed) {
+        const r = refreshed as Record<string, unknown>;
+        updateSettings({
+          leadLockDays: (r.lead_lock_days as number) ?? leadLockDays,
+          commissionCapMonths: (r.commission_cap_months as number) ?? commissionCapMonths,
+        });
+        setLeadLock(String((r.lead_lock_days as number) ?? leadLockDays));
+        setCapMonths(String((r.commission_cap_months as number) ?? commissionCapMonths));
+      } else {
+        updateSettings({ leadLockDays, commissionCapMonths });
+      }
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setSaveError(`Failed to save settings: ${msg}`);
+      console.error('Settings save failed:', msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleClearData = () => {
@@ -68,9 +129,17 @@ export function AdminSettings() {
           </ul>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button type="submit" className="btn-primary"><Save className="h-4 w-4" /> Save Settings</button>
-          {saved && <span className="text-sm text-emerald-600 font-medium animate-fade-in">Settings saved successfully!</span>}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <button type="submit" disabled={saving} className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {saving ? 'Saving...' : 'Save Settings'}
+            </button>
+            {saved && <span className="text-sm text-emerald-600 font-medium animate-fade-in">Settings saved successfully!</span>}
+          </div>
+          {saveError && (
+            <p className="text-sm text-red-600 font-medium animate-fade-in">{saveError}</p>
+          )}
         </div>
       </form>
 

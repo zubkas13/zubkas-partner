@@ -214,10 +214,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // Persist settings to Supabase when they change (skip initial load)
+  // The Settings page now performs explicit .update() calls to app_settings.
+  // This ref-based guard prevents the initial setState (from the DB load above)
+  // from triggering a redundant write. resetAllData bypasses this via
+  // settingsSaveRef to persist a reset to defaults when needed.
+  const settingsSaveRef = useRef(true);
   useEffect(() => {
-    if (!settingsLoadedRef.current) return;
-    settingsLoadedRef.current = true;
+    if (!settingsLoadedRef.current || settingsSaveRef.current) {
+      settingsSaveRef.current = false;
+      return;
+    }
     (async () => {
       try {
         await supabase.from('app_settings').upsert({
