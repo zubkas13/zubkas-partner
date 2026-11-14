@@ -112,7 +112,14 @@ export function PartnerCommissions() {
   const paidAmount = effectiveTransactions.filter(t => t.status === 'Paid').reduce((s, t) => s + t.amount, 0);
   const monthlyCommission = stats?.monthlyCommission ?? 0;
   const blockedCommission = stats?.pendingCommission ?? 0;
-  const cappedCount = myCustomers.filter(c => c.planType === 'Monthly' && c.remainingMonths === 0).length;
+  // Whether a customer's commission period has ended (cap reached).
+  // Uses the configurable commissionCapMonths setting instead of a hardcoded 12.
+  const isCommissionCapped = (c: { planType: string; remainingMonths: number; monthsElapsed: number; status: string }) => {
+    if (c.planType !== 'Monthly') return false;
+    return c.remainingMonths <= 0 || c.monthsElapsed >= settings.commissionCapMonths;
+  };
+
+  const cappedCount = myCustomers.filter(c => isCommissionCapped(c)).length;
 
   // Monthly breakdown for chart — uses effective transactions (real or generated)
   const monthlyData = effectiveTransactions.reduce((acc, t) => {
@@ -125,9 +132,9 @@ export function PartnerCommissions() {
   const maxMonthly = Math.max(...monthLabels.map(m => monthlyData[m] ?? 0), 1);
 
   const filteredCustomers = myCustomers.filter(c => {
-    if (view === 'active') return c.status === 'Active';
+    if (view === 'active') return c.status === 'Active' && !isCommissionCapped(c);
     if (view === 'unpaid') return c.status === 'Unpaid';
-    if (view === 'capped') return c.planType === 'Monthly' && c.remainingMonths === 0;
+    if (view === 'capped') return isCommissionCapped(c) && c.status !== 'Unpaid';
     return true;
   });
 
@@ -255,7 +262,8 @@ export function PartnerCommissions() {
               ) : (
                 filteredCustomers.map(c => {
                   const monthlyAmt = (c.subscriptionAmount * c.commissionRate / 100);
-                  const progress = c.planType === 'Monthly' ? Math.min(100, (c.monthsElapsed / 12) * 100) : 100;
+                  const progress = c.planType === 'Monthly' ? Math.min(100, (c.monthsElapsed / settings.commissionCapMonths) * 100) : 100;
+                  const capped = isCommissionCapped(c);
                   return (
                     <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3">
@@ -271,7 +279,7 @@ export function PartnerCommissions() {
                       <td className="px-4 py-3 text-right">
                         {c.status === 'Unpaid' ? (
                           <span className="text-amber-600 font-medium line-through">{formatCurrency(monthlyAmt)}</span>
-                        ) : c.planType === 'Monthly' && c.remainingMonths === 0 ? (
+                        ) : capped ? (
                           <span className="text-gray-400">Capped</span>
                         ) : (
                           <span className="font-medium text-gray-900">{formatCurrency(monthlyAmt)}</span>
@@ -282,19 +290,19 @@ export function PartnerCommissions() {
                         <div className="w-24 mx-auto">
                           <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
                             <div
-                              className={`h-2 rounded-full transition-all ${c.status === 'Unpaid' ? 'bg-amber-400' : progress >= 100 ? 'bg-gray-400' : 'bg-emerald-500'}`}
+                              className={`h-2 rounded-full transition-all ${c.status === 'Unpaid' ? 'bg-amber-400' : capped ? 'bg-gray-400' : 'bg-emerald-500'}`}
                               style={{ width: `${progress}%` }}
                             />
                           </div>
                           {c.planType === 'Monthly' && (
-                            <p className="text-[10px] text-gray-400 text-center mt-1">{c.monthsElapsed}/12 mo</p>
+                            <p className="text-[10px] text-gray-400 text-center mt-1">{c.monthsElapsed}/{settings.commissionCapMonths} mo</p>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         {c.status === 'Unpaid' ? (
                           <span className="badge badge-error"><AlertTriangle className="h-3 w-3" /> Blocked</span>
-                        ) : c.planType === 'Monthly' && c.remainingMonths === 0 ? (
+                        ) : capped ? (
                           <span className="badge badge-neutral"><Clock className="h-3 w-3" /> Capped</span>
                         ) : (
                           <span className="badge badge-success">Earning</span>
